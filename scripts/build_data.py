@@ -100,7 +100,13 @@ def main():
             "sd_v": round(st.stdev(v), 3),
         })
     players.sort(key=lambda p: -p["punti"])
-    data = {"stagione": SEASON, "giornate": days, "players": players}
+    # Totali sull'intera rosa, compresi i giocatori senza voti: i loro crediti sono comunque spesi.
+    totals = defaultdict(lambda: {"crediti": 0, "punti": 0.0})
+    for pid, own in roster.items():
+        totals[own["team"]]["crediti"] += own["crediti"]
+        totals[own["team"]]["punti"] += sum(g[1] for g in games.get(pid, []))
+    squadre = [{"team": t, "crediti": v["crediti"], "punti": round(v["punti"], 1)} for t, v in totals.items()]
+    data = {"stagione": SEASON, "giornate": days, "squadre": squadre, "players": players}
     pathlib.Path("docs").mkdir(exist_ok=True)
     with open("docs/data.json", "w", encoding="utf8") as fh:
         json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))

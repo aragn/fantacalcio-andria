@@ -72,6 +72,10 @@ th { position: sticky; top: 0; background: var(--panel); color: var(--text-2); f
 th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
 td:nth-child(3) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 td { font-variant-numeric: tabular-nums; }
+.teams th:nth-child(n+2), .teams td:nth-child(n+2) { text-align: right; }
+.teams td:first-child { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.teams tr.picked td { font-weight: 600; background: var(--panel); }
+.lead { color: var(--text-2); margin: 0 0 12px; max-width: 72ch; }
 tr.on-frontier td:first-child { font-weight: 600; }
 tr.on-frontier td:first-child::before {
   content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -123,6 +127,18 @@ a { color: var(--frontier); }
   <div class="legend" id="legend"></div>
   <div id="chart"><div id="tip"></div></div>
 
+  <h2>Classifica delle squadre</h2>
+  <p class="lead">Ordinata per area della frontiera di ogni squadra, con i filtri scelti sopra. Le ultime tre colonne riguardano sempre la rosa intera.</p>
+  <div class="table-wrap">
+    <table class="teams">
+      <thead><tr>
+        <th>Squadra</th><th>Area frontiera</th><th>Sulla frontiera</th>
+        <th>Punti rosa</th><th>Crediti rosa</th><th>Punti/credito</th>
+      </tr></thead>
+      <tbody id="teams-body"></tbody>
+    </table>
+  </div>
+
   <h2>Tutti i giocatori della selezione</h2>
   <div class="table-wrap">
     <table>
@@ -141,6 +157,8 @@ a { color: var(--frontier); }
     <li><strong>Portieri:</strong> il terzetto si compra in blocco, quindi il costo dei portieri dello stesso club è sommato su chi ha giocato di più. Il Clean Sheet dà +1 al portiere imbattuto.</li>
     <li><strong>Crediti:</strong> è il prezzo d'acquisto mostrato oggi nelle rose di Leghe Fantacalcio, comprese le operazioni di mercato dopo l'asta.</li>
     <li><strong>Quotazione:</strong> si usa quella iniziale perché quella attuale sale proprio quando il giocatore rende.</li>
+    <li><strong>Classifica squadre:</strong> l'area misura quanto spazio copre la frontiera dei giocatori di una squadra: più è alta, più la squadra ha giocatori che rendono bene per il loro costo a ogni livello di volatilità. Vale solo come confronto tra squadre, e differenze di pochi decimi sono un pareggio. "Sulla frontiera" conta i giocatori sulla frontiera di tutta la lega.</li>
+    <li><strong>Punti/credito della rosa:</strong> somma tutti i giocatori, panchinari compresi, non le formazioni schierate. I crediti in rosa non fanno 500 per tutti, quindi una squadra con pochi crediti può risultare più efficiente di quanto sia.</li>
     <li><strong>Fonti:</strong> voti statistici e quotazioni da <a href="https://www.fantacalcio.it/voti-fantacalcio-serie-a">fantacalcio.it</a>, rose da Leghe Fantacalcio. Qui ci sono solo statistiche derivate.</li>
   </ul>
 </main>
@@ -316,6 +334,34 @@ function drawTable() {
   }));
 }
 
+// Area coperta dalla frontiera di una squadra: per ogni volatilità, il miglior log(punti/costo) raggiunto.
+function frontierArea(rows, xMax, yRef) {
+  let best = -Infinity;
+  const front = [...rows].sort((a, b) => a.x - b.x || b.y - a.y).filter(p => p.y > best && (best = p.y, true));
+  return front.reduce((sum, p, i) => {
+    const next = i + 1 < front.length ? front[i + 1].x : xMax;
+    return sum + Math.max(0, Math.log(p.y / yRef)) * (next - p.x);
+  }, 0);
+}
+
+function drawTeams() {
+  const xMax = Math.max(...current.map(p => p.x)), yRef = Math.min(...current.map(p => p.y));
+  const rows = data.squadre.map(t => {
+    const mine = current.filter(p => p.team === t.team);
+    return { ...t, area: mine.length ? frontierArea(mine, xMax, yRef) : 0, onFront: mine.filter(p => p.front).length };
+  }).sort((a, b) => b.area - a.area);
+  $("teams-body").replaceChildren(...rows.map(t => {
+    const tr = document.createElement("tr");
+    if (t.team === state.team) tr.className = "picked";
+    for (const v of [t.team, fmt(t.area), t.onFront, fmt(t.punti, 0), t.crediti, fmt(t.punti / t.crediti)]) {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.append(td);
+    }
+    return tr;
+  }));
+}
+
 function drawText() {
   const front = current.filter(p => p.front).length;
   $("insight").textContent = current.length
@@ -346,6 +392,7 @@ function render() {
   current = select();
   drawText();
   drawChart();
+  drawTeams();
   drawTable();
 }
 
