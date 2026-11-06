@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Efficient frontier · Fantacalcio Andria</title>
+<meta name="description" content="Volatilità dei voti contro punti per credito dei giocatori della Lega Fantastico Calcio Andria, stagione 2026/27.">
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --panel: #f3f2ee;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --grid: #e6e5e0;
+  --dot: #b3b2ab;
+  --frontier: #2a78d6;
+  --team: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --panel: #252524;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --grid: #343432;
+    --dot: #6f6e68;
+    --frontier: #3987e5;
+    --team: #d95926;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 56px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 18px; margin: 40px 0 8px; }
+.sub { color: var(--text-2); margin: 0 0 24px; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 16px; }
+.filters label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); min-width: 0; }
+select {
+  font: inherit; font-size: 15px; color: var(--text); background: var(--panel);
+  border: 1px solid var(--grid); border-radius: 6px; padding: 6px 8px; max-width: 220px;
+}
+.insight { font-size: 17px; margin: 0 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+#chart { position: relative; width: 100%; }
+#chart svg { display: block; width: 100%; touch-action: pan-y; }
+.tick { fill: var(--text-2); font-size: 12px; }
+.axis-title { fill: var(--text-2); font-size: 13px; }
+.lbl { fill: var(--text); font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+#tip {
+  position: absolute; pointer-events: none; display: none; z-index: 2; width: 220px;
+  background: var(--surface); border: 1px solid var(--grid); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; box-shadow: 0 2px 10px rgba(0, 0, 0, .14);
+}
+#tip b { display: block; font-size: 15px; }
+#tip small { color: var(--text-2); display: block; font-size: 12px; margin-bottom: 4px; overflow-wrap: anywhere; }
+#tip div { display: flex; justify-content: space-between; gap: 8px; color: var(--text-2); }
+#tip div strong { color: var(--text); font-weight: 600; }
+.table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--grid); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { position: sticky; top: 0; background: var(--panel); color: var(--text-2); font-weight: 600; font-size: 13px; }
+th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+td:nth-child(3) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+td { font-variant-numeric: tabular-nums; }
+tr.on-frontier td:first-child { font-weight: 600; }
+tr.on-frontier td:first-child::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--frontier); margin-right: 6px;
+}
+.notes { color: var(--text-2); font-size: 15px; max-width: 72ch; padding-left: 20px; }
+.notes li { margin-bottom: 6px; }
+.notes strong { color: var(--text); }
+a { color: var(--frontier); }
+@media (max-width: 560px) {
+  h1 { font-size: 24px; }
+  .filters label { flex: 1 1 45%; }
+  select { width: 100%; max-width: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Efficient frontier dei giocatori</h1>
+  <p class="sub" id="sub">Lega Fantastico Calcio Andria</p>
+
+  <div class="filters">
+    <label>Costo
+      <select id="basis">
+        <option value="crediti">Crediti pagati</option>
+        <option value="qi">Quotazione iniziale Mantra</option>
+      </select>
+    </label>
+    <label>Prezzo minimo <select id="min"></select></label>
+    <label>Reparto
+      <select id="rep">
+        <option value="">Tutti</option>
+        <option value="P">Portieri</option>
+        <option value="D">Difensori</option>
+        <option value="C">Centrocampisti</option>
+        <option value="A">Attaccanti</option>
+      </select>
+    </label>
+    <label>Volatilità di
+      <select id="vol">
+        <option value="sd_fv">Fantavoto</option>
+        <option value="sd_v">Voto puro</option>
+      </select>
+    </label>
+    <label>Evidenzia squadra <select id="team"><option value="">Nessuna</option></select></label>
+  </div>
+
+  <p class="insight" id="insight"></p>
+  <div class="legend" id="legend"></div>
+  <div id="chart"><div id="tip"></div></div>
+
+  <h2>Tutti i giocatori della selezione</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <h2>Come leggerla</h2>
+  <ul class="notes">
+    <li><strong>Frontiera:</strong> un giocatore ci sta se nessun altro rende di più per credito con una volatilità uguale o minore. In alto a sinistra è meglio.</li>
+    <li><strong>Asse Y:</strong> fantapunti totali diviso prezzo, in scala logaritmica. I punti sono totali, quindi chi salta le partite ne risente.</li>
+    <li><strong>Asse X:</strong> deviazione standard dei voti nelle partite con voto. Non conta le assenze, e un gol pesa come volatilità anche se è una buona notizia.</li>
+    <li><strong>Prezzo minimo:</strong> con tutti i giocatori la frontiera è fatta solo da chi è costato 1 credito, perché il rapporto premia il prezzo basso più di ogni altra cosa. Per questo il filtro parte da 10 crediti: alzalo per confrontare i giocatori di fascia alta.</li>
+    <li><strong>Campione:</strong> restano solo i giocatori in rosa con almeno metà delle giornate a voto. Dieci partite sono poche, quindi la volatilità è una stima grezza.</li>
+    <li><strong>Portieri:</strong> il terzetto si compra in blocco, quindi il costo dei portieri dello stesso club è sommato su chi ha giocato di più. Il Clean Sheet dà +1 al portiere imbattuto.</li>
+    <li><strong>Crediti:</strong> è il prezzo d'acquisto mostrato oggi nelle rose di Leghe Fantacalcio, comprese le operazioni di mercato dopo l'asta.</li>
+    <li><strong>Quotazione:</strong> si usa quella iniziale perché quella attuale sale proprio quando il giocatore rende.</li>
+    <li><strong>Fonti:</strong> voti statistici e quotazioni da <a href="https://www.fantacalcio.it/voti-fantacalcio-serie-a">fantacalcio.it</a>, rose da Leghe Fantacalcio. Qui ci sono solo statistiche derivate.</li>
+  </ul>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const THRESHOLDS = { crediti: [1, 5, 10, 20, 50], qi: [1, 5, 10, 15, 20] };
+const DEFAULT_MIN = { crediti: 10, qi: 5 };
+const COST_LABEL = { crediti: "credito", qi: "punto di quotazione" };
+const fmt = (n, d = 2) => n.toLocaleString("it-IT", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+let data, minPv, current = [], hovered = null, geometry = null;
+const state = { basis: "crediti", min: 10, rep: "", vol: "sd_fv", team: "" };
+
+function el(tag, attrs = {}, text) {
+  const node = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function select() {
+  const rows = data.players
+    .filter(p => p.team && p.pv >= minPv && p[state.basis] >= Math.max(state.min, 1))
+    .filter(p => !state.rep || p.r === state.rep)
+    .map(p => ({ ...p, x: p[state.vol], y: p.punti / p[state.basis], price: p[state.basis], front: false }))
+    .filter(p => p.y > 0);
+  let best = -Infinity;
+  [...rows].sort((a, b) => a.x - b.x || b.y - a.y).forEach(p => {
+    if (p.y > best) { best = p.y; p.front = true; }
+  });
+  return rows;
+}
+
+function logTicks(lo, hi) {
+  const out = [];
+  for (let e = -2; e <= 3; e++) for (const m of [1, 2, 5]) {
+    const v = m * 10 ** e;
+    if (v >= lo && v <= hi) out.push(v);
+  }
+  return out;
+}
+
+function drawChart() {
+  const box = $("chart");
+  box.querySelector("svg")?.remove();
+  const rows = current;
+  if (!rows.length) return;
+
+  const W = box.clientWidth, narrow = W < 560;
+  const H = narrow ? 420 : 540;
+  const m = { top: 16, right: 16, bottom: 48, left: 52 };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img",
+    "aria-label": "Grafico a dispersione: volatilità sull'asse orizzontale, punti per costo su quello verticale" });
+
+  const xs = rows.map(p => p.x), ys = rows.map(p => p.y);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) * 2) / 2), x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.1;
+  const y0 = Math.min(...ys) / 1.25, y1 = Math.max(...ys) * 1.35;
+  const sx = v => m.left + (v - x0) / (x1 - x0) * (W - m.left - m.right);
+  const sy = v => H - m.bottom - Math.log(v / y0) / Math.log(y1 / y0) * (H - m.top - m.bottom);
+
+  for (const t of logTicks(y0, y1)) {
+    svg.append(el("line", { x1: m.left, x2: W - m.right, y1: sy(t), y2: sy(t), stroke: "var(--grid)" }));
+    svg.append(el("text", { x: m.left - 8, y: sy(t) + 4, "text-anchor": "end", class: "tick" }, t.toLocaleString("it-IT")));
+  }
+  const step = narrow ? 1 : 0.5;
+  for (let t = Math.ceil(x0 / step) * step; t <= x1; t += step) {
+    svg.append(el("line", { x1: sx(t), x2: sx(t), y1: m.top, y2: H - m.bottom, stroke: "var(--grid)" }));
+    svg.append(el("text", { x: sx(t), y: H - m.bottom + 18, "text-anchor": "middle", class: "tick" }, fmt(t, 1)));
+  }
+  const volName = state.vol === "sd_fv" ? "fantavoto" : "voto puro";
+  svg.append(el("text", { x: (m.left + W - m.right) / 2, y: H - 10, "text-anchor": "middle", class: "axis-title" },
+    `Volatilità del ${volName} (deviazione standard)`));
+  svg.append(el("text", { transform: `translate(14 ${(m.top + H - m.bottom) / 2}) rotate(-90)`, "text-anchor": "middle", class: "axis-title" },
+    `Punti per ${COST_LABEL[state.basis]} (scala log)`));
+
+  const isTeam = p => state.team && p.team === state.team;
+  const dot = (p, fill, r) => el("circle", { cx: sx(p.x), cy: sy(p.y), r, fill, stroke: "var(--surface)", "stroke-width": 2 });
+  rows.filter(p => !p.front && !isTeam(p)).forEach(p => svg.append(dot(p, "var(--dot)", 4.5)));
+
+  const line = rows.filter(p => p.front).sort((a, b) => a.x - b.x);
+  svg.append(el("polyline", { points: line.map(p => `${sx(p.x)},${sy(p.y)}`).join(" "),
+    fill: "none", stroke: "var(--frontier)", "stroke-width": 2, "stroke-linejoin": "round" }));
+  rows.filter(isTeam).forEach(p => svg.append(dot(p, "var(--team)", 5.5)));
+  line.forEach(p => svg.append(dot(p, isTeam(p) ? "var(--team)" : "var(--frontier)", 6)));
+
+  // Etichette solo per frontiera e squadra evidenziata, saltando quelle che si sovrappongono.
+  const placed = [];
+  const clash = b => placed.some(o => b.x < o.x + o.w && o.x < b.x + b.w && b.y < o.y + o.h && o.y < b.y + b.h);
+  const toLabel = [...line, ...rows.filter(p => isTeam(p) && !p.front)];
+  toLabel.forEach(p => placed.push({ x: sx(p.x) - 6, y: sy(p.y) - 6, w: 12, h: 12 }));
+  for (const p of toLabel) {
+    const w = p.nome.length * 6.6, h = 14, px = sx(p.x), py = sy(p.y);
+    const spots = [
+      { x: px - w - 8, y: py - h - 2, a: "end" }, { x: px + 8, y: py - h - 2, a: "start" },
+      { x: px + 8, y: py + 2, a: "start" }, { x: px - w - 8, y: py + 2, a: "end" },
+      { x: px - w / 2, y: py - h - 9, a: "middle" }, { x: px - w / 2, y: py + 9, a: "middle" },
+    ];
+    const spot = spots.find(s => s.x >= m.left && s.x + w <= W - m.right && s.y >= 2 && s.y + h <= H - m.bottom
+      && !clash({ x: s.x, y: s.y, w, h }));
+    if (!spot) continue;
+    placed.push({ x: spot.x, y: spot.y, w, h });
+    const tx = spot.a === "end" ? spot.x + w : spot.a === "middle" ? spot.x + w / 2 : spot.x;
+    svg.append(el("text", { x: tx, y: spot.y + 11, "text-anchor": spot.a, class: "lbl" }, p.nome));
+  }
+
+  const ring = el("circle", { r: 9, fill: "none", stroke: "var(--text)", "stroke-width": 1.5, visibility: "hidden" });
+  svg.append(ring);
+  geometry = { sx, sy, ring };
+  svg.addEventListener("pointermove", onPointer);
+  svg.addEventListener("pointerdown", onPointer);
+  svg.addEventListener("pointerleave", hideTip);
+  box.append(svg);
+}
+
+function onPointer(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  let near = null, dist = 30 ** 2;
+  for (const p of current) {
+    const d = (geometry.sx(p.x) - px) ** 2 + (geometry.sy(p.y) - py) ** 2;
+    if (d < dist) { dist = d; near = p; }
+  }
+  if (!near) return hideTip();
+  if (near !== hovered) { hovered = near; fillTip(near); }
+  const tip = $("tip"), cx = geometry.sx(near.x), cy = geometry.sy(near.y);
+  geometry.ring.setAttribute("cx", cx);
+  geometry.ring.setAttribute("cy", cy);
+  geometry.ring.setAttribute("visibility", "visible");
+  tip.style.display = "block";
+  const left = cx + 240 > rect.width ? Math.max(0, cx - 232) : cx + 12;
+  const top = Math.max(0, Math.min(cy - 40, rect.height - tip.offsetHeight - 4));
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function hideTip() {
+  hovered = null;
+  $("tip").style.display = "none";
+  geometry?.ring.setAttribute("visibility", "hidden");
+}
+
+function fillTip(p) {
+  const tip = $("tip");
+  tip.replaceChildren();
+  const add = (tag, text) => { const n = document.createElement(tag); n.textContent = text; tip.append(n); return n; };
+  add("b", p.nome);
+  add("small", `${p.squadra} · ${p.rm} · ${p.team}`);
+  const row = (k, v) => { const d = add("div", k); const s = document.createElement("strong"); s.textContent = v; d.append(s); };
+  row(`Punti per ${COST_LABEL[state.basis]}`, fmt(p.y));
+  row("Volatilità", fmt(p.x));
+  row("Crediti pagati", String(p.crediti) + (p.terzetto ? " (terzetto)" : ""));
+  row("Quotazione iniziale", String(p.qi));
+  row("Punti totali", fmt(p.punti, 1));
+  row("Voti ricevuti", `${p.pv} su ${data.giornate}`);
+}
+
+function drawTable() {
+  const cost = state.basis === "crediti" ? "Punti/credito" : "Punti/quot.";
+  $("thead").replaceChildren(...["Giocatore", "Ruolo", "Squadra", "Crediti", "Qt.I", "Voti", "Fantamedia", "Volatilità", "Punti", cost]
+    .map(t => { const th = document.createElement("th"); th.textContent = t; return th; }));
+  const order = [...current].sort((a, b) => b.front - a.front || b.y - a.y);
+  $("tbody").replaceChildren(...order.map(p => {
+    const tr = document.createElement("tr");
+    if (p.front) tr.className = "on-frontier";
+    for (const v of [p.nome, p.rm, p.team, p.crediti, p.qi, p.pv, fmt(p.fm), fmt(p.x), fmt(p.punti, 1), fmt(p.y)]) {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.append(td);
+    }
+    return tr;
+  }));
+}
+
+function drawText() {
+  const front = current.filter(p => p.front).length;
+  $("insight").textContent = current.length
+    ? `${front} giocatori sulla frontiera, su ${current.length} selezionati.`
+    : "Nessun giocatore con questi filtri.";
+  const items = [["var(--dot)", "Giocatori"], ["var(--frontier)", "Frontiera"]];
+  if (state.team) items.push(["var(--team)", state.team]);
+  $("legend").replaceChildren(...items.map(([color, label]) => {
+    const span = document.createElement("span"), key = document.createElement("i");
+    key.style.background = color;
+    span.append(key, label);
+    return span;
+  }));
+}
+
+function fillMin() {
+  $("min").replaceChildren(...THRESHOLDS[state.basis].map(v => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v === 1 ? "Nessuno" : `Da ${v} in su`;
+    return o;
+  }));
+  $("min").value = state.min;
+}
+
+function render() {
+  hideTip();
+  current = select();
+  drawText();
+  drawChart();
+  drawTable();
+}
+
+async function init() {
+  data = await (await fetch("data.json")).json();
+  minPv = Math.ceil(data.giornate / 2);
+  $("sub").textContent = `Lega Fantastico Calcio Andria · stagione ${data.stagione.replace("-", "/")} · ${data.giornate} giornate · voto statistico Alvin`;
+  const teams = [...new Set(data.players.map(p => p.team).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  $("team").append(...teams.map(t => { const o = document.createElement("option"); o.value = t; o.textContent = t; return o; }));
+  fillMin();
+  $("basis").addEventListener("change", e => {
+    state.basis = e.target.value;
+    state.min = DEFAULT_MIN[state.basis];
+    fillMin();
+    render();
+  });
+  $("min").addEventListener("change", e => { state.min = Number(e.target.value); render(); });
+  for (const key of ["rep", "vol", "team"]) {
+    $(key).addEventListener("change", e => { state[key] = e.target.value; render(); });
+  }
+  new ResizeObserver(() => { if (current.length) drawChart(); }).observe($("chart"));
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
